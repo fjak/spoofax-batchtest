@@ -1,4 +1,4 @@
-package de.fjak.spoofax.gt;
+package de.fjak.spoofax.batchtest;
 
 import java.io.FileReader;
 import java.io.IOException;
@@ -29,7 +29,7 @@ import org.spoofax.terms.io.binary.TermReader;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 
-public class GrammarTest {
+public class Main {
 	private static final char C_FAILURE = 'F';
 	private static final char C_ERROR = 'E';
 	private static final char C_TIMEOUT = 'T';
@@ -58,17 +58,17 @@ public class GrammarTest {
 
 	public static void main(String[] args) throws ParseError, IOException,
 			InvalidParseTableException {
-		GrammarTest gt = new GrammarTest();
+		Main batchtest = new Main();
 
-		JCommander jCommander = new JCommander(gt, args);
+		JCommander jCommander = new JCommander(batchtest, args);
 		jCommander.setProgramName("gt");
 
-		if (gt.help) {
+		if (batchtest.help) {
 			jCommander.usage();
 			return;
 		}
 
-		gt.run();
+		batchtest.run();
 	}
 
 	private ParseResult parse(SGLR sglr, String filename) {
