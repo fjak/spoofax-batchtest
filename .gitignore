@@ -1,0 +1,4 @@
+bin/gt.jar
+build/
+.gradle/
+lib/

@@ -1,0 +1,22 @@
+// vim: set expandtab ts=2 sw=2:
+
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+repositories {
+  flatDir {
+    dirs 'lib'
+  }
+}
+
+dependencies {
+  compile ':org.spoofax.jsglr:'
+  compile ':org.spoofax.terms:'
+}
+
+jar {
+  manifest {
+    attributes 'Main-Class': 'de.fjak.spoofax.gt.GrammarTest'
+  }
+}
+
