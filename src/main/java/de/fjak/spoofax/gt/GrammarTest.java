@@ -17,14 +17,11 @@ import java.util.concurrent.TimeoutException;
 import org.spoofax.interpreter.terms.IStrategoTerm;
 import org.spoofax.jsglr.client.ITreeBuilder;
 import org.spoofax.jsglr.client.InvalidParseTableException;
-import org.spoofax.jsglr.client.ParseException;
 import org.spoofax.jsglr.client.ParseTable;
 import org.spoofax.jsglr.client.imploder.TermTreeFactory;
 import org.spoofax.jsglr.client.imploder.TreeBuilder;
 import org.spoofax.jsglr.io.SGLR;
-import org.spoofax.jsglr.shared.BadTokenException;
 import org.spoofax.jsglr.shared.SGLRException;
-import org.spoofax.jsglr.shared.TokenExpectedException;
 import org.spoofax.terms.ParseError;
 import org.spoofax.terms.TermFactory;
 import org.spoofax.terms.io.binary.TermReader;
@@ -33,20 +30,31 @@ import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 
 public class GrammarTest {
-	@Parameter(names = {"-s", "--start-symbol"}, description = "Start symbol to use for parsing")
+	private static final char C_FAILURE = 'F';
+	private static final char C_ERROR = 'E';
+	private static final char C_TIMEOUT = 'T';
+	private static final char C_AMBIGUITY = 'A';
+	private static final char C_SUCCESS = '.';
+
+	@Parameter(names = { "-s", "--start-symbol" }, description = "Start symbol to use for parsing")
 	private String startSymbol = "CompilationUnit";
 
-	@Parameter(names = {"-t", "--timeout"}, description = "Timeout in seconds to parse one file")
-	private int timeout = 5;
+	@Parameter(names = { "-t", "--timeout" }, description = "Timeout in seconds to parse one file")
+	private int timeout = 10;
 
-	@Parameter(names = {"-p", "--parse-table"}, description = "Parse table to use", required = true)
+	@Parameter(names = { "-p", "--parse-table" }, description = "Parse table to use", required = true)
 	private String parseTable;
 
-	@Parameter(names = {"--help"}, help = true, hidden = true)
+	@Parameter(names = { "--help" }, help = true, hidden = true)
 	private boolean help;
 
 	@Parameter
 	private List<String> files = new ArrayList<String>();
+
+	private List<String> errorFiles = new LinkedList<String>();
+	private List<String> failureFiles = new LinkedList<String>();
+	private List<String> ambiguityFiles = new LinkedList<String>();
+	private List<String> timeoutFiles = new LinkedList<String>();
 
 	public static void main(String[] args) throws ParseError, IOException,
 			InvalidParseTableException {
@@ -63,18 +71,27 @@ public class GrammarTest {
 		gt.run();
 	}
 
-	private void parse(SGLR sglr, String filename)
-			throws TokenExpectedException, BadTokenException, ParseException,
-			SGLRException, IOException, InterruptedException,
-			AmbiguityException {
-		Reader r = new FileReader(filename);
-		IStrategoTerm t = (IStrategoTerm) sglr.parse(r, filename, startSymbol);
-		TermReader termIO = new TermReader(sglr.getParseTable().getFactory());
-		Writer ous = new StringWriter();
-		termIO.unparseToFile(t, ous);
-		if (ous.toString().contains("amb(") || ous.toString().contains("amb[")) {
-			throw new AmbiguityException();
+	private ParseResult parse(SGLR sglr, String filename) {
+		try {
+			Reader r = new FileReader(filename);
+			IStrategoTerm t = (IStrategoTerm) sglr.parse(r, filename, startSymbol);
+			TermReader termIO = new TermReader(sglr.getParseTable().getFactory());
+			Writer ous = new StringWriter();
+			termIO.unparseToFile(t, ous);
+			String res = ous.toString();
+			if (isAmbiguous(res)) {
+				return new ParseResult(ParseResultEnum.AMBIGUITY);
+			}
+			return new ParseResult(ParseResultEnum.SUCCESS);
+		} catch (SGLRException e) {
+			return new ParseResult(ParseResultEnum.FAILURE, e);
+		} catch (Exception e) {
+			return new ParseResult(ParseResultEnum.ERROR, e);
 		}
+	}
+
+	private boolean isAmbiguous(String s) {
+		return s.contains("amb(") || s.contains("amb[");
 	}
 
 	private SGLR initSGLR(String parseTableFile, String startSymbol)
@@ -88,11 +105,83 @@ public class GrammarTest {
 		SGLR sglr = new SGLR(treeBuilder, parseTable);
 		sglr.getDisambiguator().setFilterAny(true);
 		sglr.getDisambiguator().setFilterCycles(true);
-		// sglr.getDisambiguator().setAmbiguityIsError(true);
 		return sglr;
 	}
 
-	class TimeoutParse implements Callable<Object> {
+	public void run() throws ParseError, IOException,
+			InvalidParseTableException {
+		ExecutorService executor = Executors.newSingleThreadExecutor();
+		SGLR sglr = initSGLR(parseTable, startSymbol);
+
+		for (String file : files) {
+			System.out.print(file + ": ");
+			try {
+				ParseResult res = executor.submit(new TimeoutParse(sglr, file)).get(timeout, TimeUnit.SECONDS);
+				handle(res, file);
+			} catch (TimeoutException e) {
+				timeoutFiles.add(file);
+				print(C_TIMEOUT);
+				sglr = initSGLR(parseTable, startSymbol);
+				executor.shutdownNow();
+				executor = Executors.newSingleThreadExecutor();
+			} catch (Exception e) {
+				errorFiles.add(file);
+				print(C_ERROR);
+				System.out.println(e.getMessage());
+			}
+		}
+		System.err.println();
+		executor.shutdownNow();
+		printResults();
+	}
+
+	private void handle(ParseResult res, String file) {
+		switch (res.result) {
+		case AMBIGUITY:
+			ambiguityFiles.add(file);
+			break;
+		case ERROR:
+			errorFiles.add(file);
+			break;
+		case FAILURE:
+			failureFiles.add(file);
+			break;
+		case SUCCESS:
+			break;
+		}
+		print(res.result.signal);
+		if (res.exception != null) {
+			System.out.println(res.exception.getMessage());
+		}
+	}
+
+	private void print(char signal) {
+		System.err.print(signal);
+		System.out.println(signal);
+	}
+
+	private void printResults() {
+		System.out.println();
+		System.out.println(String.format("Finished testing %d files.",
+				files.size()));
+
+		printResult(errorFiles, "Errors");
+		printResult(failureFiles, "Failures");
+		printResult(ambiguityFiles, "Ambiguities");
+		printResult(timeoutFiles, "Timeouts");
+	}
+
+	private void printResult(List<String> files, String desc) {
+		if (!files.isEmpty()) {
+			System.out.println();
+			System.out.println(String.format("%s (%d):", desc, files.size()));
+			for (String file : files) {
+				System.out.println(file);
+			}
+		}
+	}
+
+	class TimeoutParse implements Callable<ParseResult> {
 		private final SGLR sglr;
 		private final String filename;
 
@@ -102,59 +191,32 @@ public class GrammarTest {
 		}
 
 		@Override
-		public Object call() throws Exception {
-			parse(sglr, filename);
-			return null;
+		public ParseResult call() throws Exception {
+			return parse(sglr, filename);
 		}
 	}
 
-	public void run() throws ParseError, IOException,
-			InvalidParseTableException {
-		ExecutorService executor = Executors.newSingleThreadExecutor();
-		SGLR sglr = initSGLR(parseTable, startSymbol);
-		List<String> errFiles = new LinkedList<String>();
-		List<String> ambFiles = new LinkedList<String>();
-		List<String> toutFiles = new LinkedList<String>();
-		for (String file : files) {
-			System.out.print(file + ": ");
-			try {
-				executor.submit(new TimeoutParse(sglr, file)).get(timeout, TimeUnit.SECONDS);
-				parse(sglr, file);
-				System.err.print(".");
-				System.out.println(".");
-			} catch (AmbiguityException e) {
-				ambFiles.add(file);
-				System.err.print("A");
-				System.out.println("A");
-			} catch (TimeoutException e) {
-				toutFiles.add(file);
-				System.err.print("T");
-				System.out.println("T");
-				sglr = initSGLR(parseTable, startSymbol);
-				executor.shutdownNow();
-				executor = Executors.newSingleThreadExecutor();
-			} catch (Exception e) {
-				errFiles.add(file);
-				System.err.print("F");
-				System.out.println("F");
-			}
+	enum ParseResultEnum {
+		SUCCESS(C_SUCCESS), AMBIGUITY(C_AMBIGUITY), FAILURE(C_FAILURE), ERROR(C_ERROR);
+
+		char signal;
+
+		ParseResultEnum(char signal) {
+			this.signal = signal;
 		}
-		executor.shutdownNow();
-		System.err.println();
-		System.out.println();
-		System.out.println("Errors:");
-		for (String errFile : errFiles) {
-			System.out.println(errFile);
+	}
+
+	class ParseResult {
+		final ParseResultEnum result;
+		final Exception exception;
+
+		public ParseResult(ParseResultEnum res) {
+			this(res, null);
 		}
-		System.out.println();
-		System.out.println("Ambiguities:");
-		for (String ambFile : ambFiles) {
-			System.out.println(ambFile);
-		}
-		System.out.println();
-		System.out.println("Timeouts:");
-		for (String toutFile : toutFiles) {
-			System.out.println(toutFile);
+
+		public ParseResult(ParseResultEnum res, Exception e) {
+			this.result = res;
+			this.exception = e;
 		}
 	}
 }
