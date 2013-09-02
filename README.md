@@ -19,10 +19,5 @@ These can be found as part of the spoofax eclipse plug-in
 (*http://metaborg.org/wiki/spoofax/*).
 Unfortunately, I have not found another form of release for these.
 
-Gradle (*http://www.gradle.org*) is used for build automation. You might
-also use *./make* and the script from *bin/gt* for easier invocation.
-
-## Run
-A sample run might look like `gt language/include/Grammar.tbl
-language/test/**/*.lang > log.out`
+Gradle (*http://www.gradle.org*) is used for build automation.
 

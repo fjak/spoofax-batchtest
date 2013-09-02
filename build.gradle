@@ -4,6 +4,7 @@ apply plugin: 'java'
 apply plugin: 'eclipse'
 
 repositories {
+  mavenCentral()
   flatDir {
     dirs 'lib'
   }
@@ -12,9 +13,11 @@ repositories {
 dependencies {
   compile ':org.spoofax.jsglr:'
   compile ':org.spoofax.terms:'
+  compile 'com.beust:jcommander:1.30'
 }
 
 jar {
+  from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
   manifest {
     attributes 'Main-Class': 'de.fjak.spoofax.gt.GrammarTest'
   }

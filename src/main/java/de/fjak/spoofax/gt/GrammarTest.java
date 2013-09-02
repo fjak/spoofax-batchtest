@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -28,31 +29,38 @@ import org.spoofax.terms.ParseError;
 import org.spoofax.terms.TermFactory;
 import org.spoofax.terms.io.binary.TermReader;
 
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.Parameter;
+
 public class GrammarTest {
-	private static String startSymbol = "CompilationUnit";
-	private static int timeout = 5;
-	private final String parseTable;
-	private final List<String> files;
+	@Parameter(names = {"-s", "--start-symbol"}, description = "Start symbol to use for parsing")
+	private String startSymbol = "CompilationUnit";
+
+	@Parameter(names = {"-t", "--timeout"}, description = "Timeout in seconds to parse one file")
+	private int timeout = 5;
+
+	@Parameter(names = {"-p", "--parse-table"}, description = "Parse table to use", required = true)
+	private String parseTable;
+
+	@Parameter(names = {"--help"}, help = true, hidden = true)
+	private boolean help;
+
+	@Parameter
+	private List<String> files = new ArrayList<String>();
 
 	public static void main(String[] args) throws ParseError, IOException,
 			InvalidParseTableException {
-		if (args.length < 2) {
-			printUsage();
+		GrammarTest gt = new GrammarTest();
+
+		JCommander jCommander = new JCommander(gt, args);
+		jCommander.setProgramName("gt");
+
+		if (gt.help) {
+			jCommander.usage();
 			return;
 		}
 
-		String parseTable = args[0];
-		List<String> files = new LinkedList<String>();
-		for (int i = 1; i < args.length; i++) {
-			files.add(args[i]);
-		}
-		GrammarTest gt = new GrammarTest(parseTable, files);
 		gt.run();
-	}
-
-	GrammarTest(String parseTable, List<String> files) {
-		this.parseTable = parseTable;
-		this.files = files;
 	}
 
 	private void parse(SGLR sglr, String filename)
@@ -82,10 +90,6 @@ public class GrammarTest {
 		sglr.getDisambiguator().setFilterCycles(true);
 		// sglr.getDisambiguator().setAmbiguityIsError(true);
 		return sglr;
-	}
-
-	private static void printUsage() {
-		System.out.println("Usage: de.fjak.spoofax.gt.GrammarTest tbl files...");
 	}
 
 	class TimeoutParse implements Callable<Object> {

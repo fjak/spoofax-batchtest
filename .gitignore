@@ -1,4 +1,8 @@
-bin/gt.jar
+bin/
 build/
+.classpath
 .gradle/
 lib/
+.project
+.settings
+
