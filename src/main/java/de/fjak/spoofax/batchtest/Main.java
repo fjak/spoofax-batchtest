@@ -18,6 +18,7 @@ import org.spoofax.interpreter.terms.IStrategoTerm;
 import org.spoofax.jsglr.client.ITreeBuilder;
 import org.spoofax.jsglr.client.InvalidParseTableException;
 import org.spoofax.jsglr.client.ParseTable;
+import org.spoofax.jsglr.client.StartSymbolException;
 import org.spoofax.jsglr.client.imploder.TermTreeFactory;
 import org.spoofax.jsglr.client.imploder.TreeBuilder;
 import org.spoofax.jsglr.io.SGLR;
@@ -35,6 +36,7 @@ public class Main {
 	private static final char C_TIMEOUT = 'T';
 	private static final char C_AMBIGUITY = 'A';
 	private static final char C_SUCCESS = '.';
+	private static final char C_STARTMISS = 'S';
 
 	@Parameter(names = { "-s", "--start-symbol" }, description = "Start symbol to use for parsing")
 	private String startSymbol = "CompilationUnit";
@@ -55,6 +57,7 @@ public class Main {
 	private List<String> failureFiles = new LinkedList<String>();
 	private List<String> ambiguityFiles = new LinkedList<String>();
 	private List<String> timeoutFiles = new LinkedList<String>();
+	private List<String> startmissFiles = new LinkedList<String>();
 
 	public static void main(String[] args) throws ParseError, IOException,
 			InvalidParseTableException {
@@ -83,6 +86,8 @@ public class Main {
 				return new ParseResult(ParseResultEnum.AMBIGUITY);
 			}
 			return new ParseResult(ParseResultEnum.SUCCESS);
+		} catch (StartSymbolException e) {
+			return new ParseResult(ParseResultEnum.STARTMISS, e);
 		} catch (SGLRException e) {
 			return new ParseResult(ParseResultEnum.FAILURE, e);
 		} catch (Exception e) {
@@ -146,6 +151,9 @@ public class Main {
 		case FAILURE:
 			failureFiles.add(file);
 			break;
+		case STARTMISS:
+			startmissFiles.add(file);
+			break;
 		case SUCCESS:
 			break;
 		}
@@ -169,6 +177,7 @@ public class Main {
 		printResult(failureFiles, "Failures");
 		printResult(ambiguityFiles, "Ambiguities");
 		printResult(timeoutFiles, "Timeouts");
+		printResult(startmissFiles, "Missing Start Symbols");
 	}
 
 	private void printResult(List<String> files, String desc) {
@@ -197,7 +206,7 @@ public class Main {
 	}
 
 	enum ParseResultEnum {
-		SUCCESS(C_SUCCESS), AMBIGUITY(C_AMBIGUITY), FAILURE(C_FAILURE), ERROR(C_ERROR);
+		SUCCESS(C_SUCCESS), AMBIGUITY(C_AMBIGUITY), FAILURE(C_FAILURE), ERROR(C_ERROR), STARTMISS(C_STARTMISS);
 
 		char signal;
 
