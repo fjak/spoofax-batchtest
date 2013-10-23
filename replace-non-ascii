@@ -1,0 +1,47 @@
+#!/usr/bin/bash
+
+# Replace non-ASCII characters with ASCII ones.
+# This script is tailored towards the Scala sources.
+
+# arrows
+sed -i 's/→/->/g' "$@"
+sed -i 's/←/<-/g' "$@"
+sed -i 's/⇒/=>/g' "$@"
+sed -i 's/⇐/<=/g' "$@"
+sed -i 's/↑/^|/g' "$@"
+
+# set operations
+sed -i 's/∈/in/g' "$@"
+sed -i 's/∉/not_in/g' "$@"
+
+# comparisons
+sed -i 's/≥/>=/g' "$@"
+sed -i 's/≤/<=/g' "$@"
+sed -i 's/≈/~=/g' "$@"
+
+# accents
+sed -i 's/é/e/g' "$@"
+sed -i 's/ï/i/g' "$@"
+
+# greeks
+sed -i 's/α/e/g' "$@"
+sed -i 's/λ/lambda/g' "$@"
+sed -i 's/µ/mu/g' "$@"
+sed -i 's/μ/mu/g' "$@"
+sed -i 's/ε/epsilon/g' "$@"
+
+# other
+sed -i 's/ﬁ/fi/g' "$@"
+sed -i "s/’/'/g" "$@"
+sed -i "s/‘/'/g" "$@"
+sed -i "s/§/#/g" "$@"
+sed -i "s/¹/^1/g" "$@"
+sed -i 's/“/"/g' "$@"
+sed -i 's/”/"/g' "$@"
+sed -i 's/-/-/g' "$@"
+sed -i 's/€/euro/g' "$@"
+sed -i 's/ / /g' "$@"
+sed -i 's/Комментарий/Comment/g' "$@"
+sed -i 's/ЙЦУКЕН/QWERTY/g' "$@"
+sed -i 's/…/.../g' "$@"
+sed -i 's/∙/**/g' "$@"
