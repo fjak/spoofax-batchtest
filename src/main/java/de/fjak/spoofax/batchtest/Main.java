@@ -64,7 +64,7 @@ public class Main {
 		Main batchtest = new Main();
 
 		JCommander jCommander = new JCommander(batchtest, args);
-		jCommander.setProgramName("gt");
+		jCommander.setProgramName("batchtest");
 
 		if (batchtest.help) {
 			jCommander.usage();
