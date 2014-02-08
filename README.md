@@ -15,13 +15,12 @@ hand:
 1. org.spoofax.jsglr
 2. org.spoofax.terms
 
-Just put them into the *lib/* directory and remove the version
-information, so the files are named *org.spoofax.jsglr.jar* and
-*org.spoofax.terms.jar*.
+These are part of the [SugarJ](http://sugarj.org) [Eclipse update
+site](http://update.sugarj.org/plugins/).
 
-These can be found as part of the spoofax eclipse plug-in
-(http://metaborg.org/wiki/spoofax/).
-Unfortunately, I have not found another form of release for these.
+Just put them into the *lib/* directory and remove the version information, so
+the files are named *org.spoofax.jsglr.jar* and *org.spoofax.terms.jar*. You
+can use the provided `pull-libs.sh` shell script to help you with that.
 
 Gradle (http://www.gradle.org) is used for build automation.
 
@@ -32,8 +31,12 @@ yield the desired and executable-ready fat jar in build/libs/.
 
 I recommend to pipe standard output to a log file, e.g.
 
-    $ java -jar de.fjak.spoofax.batchtest -p some.lang.project/include/Lang.tbl ↵
+    $ java -jar spoofax-batchtest.jar \
+      -p some.lang.project/include/Lang.tbl \
       some.lang.project/test/**/*.lang > batchtest.log
+
+This yields a minimal output like
+    ..................................................F...............................................T........................
 
 ## Develop
 
