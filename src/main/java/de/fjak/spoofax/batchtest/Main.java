@@ -1,6 +1,8 @@
 package de.fjak.spoofax.batchtest;
 
+import java.io.BufferedWriter;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringWriter;
@@ -36,7 +38,6 @@ import static java.lang.System.out;
 import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.lang.String.format;
-
 import static de.fjak.spoofax.batchtest.ParseResultEnum.*;
 
 public class Main {
@@ -54,6 +55,10 @@ public class Main {
 
 	@Parameter(names = { "--help" }, help = true, hidden = true)
 	private boolean               help;
+
+	@Parameter(names = { "-c", "--csv" },
+	        description = "If provided write statistics as CSV into that file")
+	private String                csvPath        = "";
 
 	@Parameter
 	private List<String>          files          = new ArrayList<String>();
@@ -141,14 +146,24 @@ public class Main {
 		String head = format("RX, %7s, %4s, %6s: %s", "time", "loc", "chars",
 		        "path");
 		out.println(head);
+
+		BufferedWriter bw = null;
+
+		if (!csvPath.isEmpty()) {
+			bw = new BufferedWriter(new FileWriter(csvPath));
+			bw.write("Path,Result,Xml?,Time[ms],LOC,#chars");
+			bw.newLine();
+			bw.flush();
+		}
+
 		for (String path : files) {
 			try {
 				TimeoutParse parse = new TimeoutParse(sglr, path);
 				ParseResult res = executor.submit(parse).get(timeout,
 				        TimeUnit.SECONDS);
-				handle(res);
+				handle(res, bw);
 			} catch (TimeoutException e) {
-				handle(new ParseResult(path, TIMEOUT, timeout * 1000L));
+				handle(new ParseResult(path, TIMEOUT, timeout * 1000L), bw);
 				sglr = initSGLR(parseTable, startSymbol);
 				executor.shutdownNow();
 				executor = Executors.newSingleThreadExecutor();
@@ -157,12 +172,17 @@ public class Main {
 				exit(1);
 			}
 		}
+
+		if (bw != null) {
+			bw.close();
+		}
+
 		err.println();
 		executor.shutdownNow();
 		printResults();
 	}
 
-	private void handle(ParseResult res) {
+	private void handle(ParseResult res, BufferedWriter bw) throws IOException {
 		String path = res.path;
 		switch (res.result) {
 		case AMBIGUITY:
@@ -187,25 +207,51 @@ public class Main {
 		fileStats.put(path, FileStat.stat(path));
 		printErr(res);
 		printIntermediate(res);
+		writeCsv(bw, res);
 		if (res.exception != null) {
 			out.println(res.exception.getMessage());
 		}
 	}
 
 	private void printIntermediate(ParseResult res) {
-		String path   = res.path;
+		String path = res.path;
 		FileStat stat = fileStats.get(path);
-		char signal   = res.result.signal;
-		double time   = res.msNeeded / 1000.0;
-		int nLoc      = stat.getNumLines();
-		int nChars    = stat.getNumChars();
-		char xml      = ' ';
+		char signal = res.result.signal;
+		double time = res.msNeeded / 1000.0;
+		int nLoc = stat.getNumLines();
+		int nChars = stat.getNumChars();
+		char xml = ' ';
 		if (stat.hasXml()) {
 			xml = 'X';
 		}
-		String s = format("%c%c, %6.3fs, %4d, %6d: %s", signal, xml, time, nLoc,
-		        nChars, path);
+		String s = format("%c%c, %6.3fs, %4d, %6d: %s", signal, xml, time,
+		        nLoc, nChars, path);
 		out.println(s);
+	}
+
+	private void writeCsv(BufferedWriter writer, ParseResult res)
+	        throws IOException {
+		if (writer == null) {
+			return;
+		}
+		writer.write(toCsv(res));
+		writer.newLine();
+		writer.flush();
+	}
+
+	private String toCsv(ParseResult res) {
+		String path = res.path;
+		FileStat stat = fileStats.get(path);
+		String result = res.result.name;
+		long time = res.msNeeded;
+		int nLoc = stat.getNumLines();
+		int nChars = stat.getNumChars();
+		String xml = "noxml";
+		if (stat.hasXml()) {
+			xml = "xml";
+		}
+		return format("%s,%s,%s,%d,%d,%d", path, result, xml, time, nLoc,
+		        nChars);
 	}
 
 	private void printErr(ParseResult res) {
