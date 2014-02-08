@@ -6,8 +6,10 @@ import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,37 +32,48 @@ import org.spoofax.terms.io.binary.TermReader;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 
+import static java.lang.System.out;
+import static java.lang.System.err;
+import static java.lang.System.exit;
+import static java.lang.String.format;
+
+import static de.fjak.spoofax.batchtest.ParseResultEnum.*;
+
 public class Main {
-	private static final char C_FAILURE = 'F';
-	private static final char C_ERROR = 'E';
-	private static final char C_TIMEOUT = 'T';
-	private static final char C_AMBIGUITY = 'A';
-	private static final char C_SUCCESS = '.';
-	private static final char C_STARTMISS = 'S';
+	@Parameter(names = { "-s", "--start-symbol" },
+	        description = "Start symbol to use for parsing")
+	private String                startSymbol    = "CompilationUnit";
 
-	@Parameter(names = { "-s", "--start-symbol" }, description = "Start symbol to use for parsing")
-	private String startSymbol = "CompilationUnit";
+	@Parameter(names = { "-t", "--timeout" },
+	        description = "Timeout in seconds to parse one file")
+	private int                   timeout        = 10;
 
-	@Parameter(names = { "-t", "--timeout" }, description = "Timeout in seconds to parse one file")
-	private int timeout = 10;
-
-	@Parameter(names = { "-p", "--parse-table" }, description = "Parse table to use", required = true)
-	private String parseTable;
+	@Parameter(names = { "-p", "--parse-table" },
+	        description = "Parse table to use", required = true)
+	private String                parseTable;
 
 	@Parameter(names = { "--help" }, help = true, hidden = true)
-	private boolean help;
+	private boolean               help;
 
 	@Parameter
-	private List<String> files = new ArrayList<String>();
+	private List<String>          files          = new ArrayList<String>();
 
-	private List<String> errorFiles = new LinkedList<String>();
-	private List<String> failureFiles = new LinkedList<String>();
-	private List<String> ambiguityFiles = new LinkedList<String>();
-	private List<String> timeoutFiles = new LinkedList<String>();
-	private List<String> startmissFiles = new LinkedList<String>();
+	private List<String>          errorFiles     = new LinkedList<String>();
+	private List<String>          failureFiles   = new LinkedList<String>();
+	private List<String>          ambiguityFiles = new LinkedList<String>();
+	private List<String>          timeoutFiles   = new LinkedList<String>();
+	private List<String>          startmissFiles = new LinkedList<String>();
+	private Map<String, FileStat> fileStats      = new HashMap<String, FileStat>();
+
+	/**
+	 * Parse time for the input files in milliseconds
+	 */
+	private Map<String, Long>     timeParses     = new HashMap<String, Long>();
+	private long                  msInit         = 0L;
+	private Stopwatch             stopwatch      = new Stopwatch();
 
 	public static void main(String[] args) throws ParseError, IOException,
-			InvalidParseTableException {
+	        InvalidParseTableException {
 		Main batchtest = new Main();
 
 		JCommander jCommander = new JCommander(batchtest, args);
@@ -74,24 +87,29 @@ public class Main {
 		batchtest.run();
 	}
 
-	private ParseResult parse(SGLR sglr, String filename) {
+	private ParseResult parse(SGLR sglr, String path) {
+		stopwatch.reset().start();
 		try {
-			Reader r = new FileReader(filename);
-			IStrategoTerm t = (IStrategoTerm) sglr.parse(r, filename, startSymbol);
-			TermReader termIO = new TermReader(sglr.getParseTable().getFactory());
+			Reader r = new FileReader(path);
+			IStrategoTerm t = (IStrategoTerm) sglr.parse(r, path, startSymbol);
+			TermReader termIO = new TermReader(sglr.getParseTable()
+			        .getFactory());
 			Writer ous = new StringWriter();
 			termIO.unparseToFile(t, ous);
 			String res = ous.toString();
+			long msNeeded = stopwatch.read();
 			if (isAmbiguous(res)) {
-				return new ParseResult(ParseResultEnum.AMBIGUITY);
+				return new ParseResult(path, AMBIGUITY, msNeeded);
 			}
-			return new ParseResult(ParseResultEnum.SUCCESS);
+			return new ParseResult(path, SUCCESS, msNeeded);
 		} catch (StartSymbolException e) {
-			return new ParseResult(ParseResultEnum.STARTMISS, e);
+			return new ParseResult(path, STARTMISS, e, stopwatch.read());
 		} catch (SGLRException e) {
-			return new ParseResult(ParseResultEnum.FAILURE, e);
+			return new ParseResult(path, FAILURE, e, stopwatch.read());
 		} catch (Exception e) {
-			return new ParseResult(ParseResultEnum.ERROR, e);
+			return new ParseResult(path, ERROR, e, stopwatch.read());
+		} finally {
+			stopwatch.stop();
 		}
 	}
 
@@ -100,13 +118,13 @@ public class Main {
 	}
 
 	private SGLR initSGLR(String parseTableFile, String startSymbol)
-			throws ParseError, IOException, InvalidParseTableException {
+	        throws ParseError, IOException, InvalidParseTableException {
 		TermFactory termFactory = new TermFactory();
 		IStrategoTerm strategoTerm = new TermReader(termFactory)
-				.parseFromFile(parseTableFile);
+		        .parseFromFile(parseTableFile);
 		ParseTable parseTable = new ParseTable(strategoTerm, termFactory);
-		ITreeBuilder treeBuilder = new TreeBuilder(new TermTreeFactory(
-				new TermFactory()), true);
+		TermTreeFactory ttfac = new TermTreeFactory(new TermFactory());
+		ITreeBuilder treeBuilder = new TreeBuilder(ttfac, true);
 		SGLR sglr = new SGLR(treeBuilder, parseTable);
 		sglr.getDisambiguator().setFilterAny(true);
 		sglr.getDisambiguator().setFilterCycles(true);
@@ -114,65 +132,85 @@ public class Main {
 	}
 
 	public void run() throws ParseError, IOException,
-			InvalidParseTableException {
+	        InvalidParseTableException {
 		ExecutorService executor = Executors.newSingleThreadExecutor();
+		stopwatch.reset().start();
 		SGLR sglr = initSGLR(parseTable, startSymbol);
+		msInit = stopwatch.stop().read();
 
-		for (String file : files) {
-			System.out.print(file + ": ");
+		String head = format("R, %7s, %4s, %6s: %s", "time", "loc", "chars",
+		        "path");
+		out.println(head);
+		for (String path : files) {
 			try {
-				ParseResult res = executor.submit(new TimeoutParse(sglr, file)).get(timeout, TimeUnit.SECONDS);
-				handle(res, file);
+				TimeoutParse parse = new TimeoutParse(sglr, path);
+				ParseResult res = executor.submit(parse).get(timeout,
+				        TimeUnit.SECONDS);
+				handle(res);
 			} catch (TimeoutException e) {
-				timeoutFiles.add(file);
-				print(C_TIMEOUT);
+				handle(new ParseResult(path, TIMEOUT, timeout * 1000L));
 				sglr = initSGLR(parseTable, startSymbol);
 				executor.shutdownNow();
 				executor = Executors.newSingleThreadExecutor();
 			} catch (Exception e) {
-				errorFiles.add(file);
-				print(C_ERROR);
-				System.out.println(e.getMessage());
+				e.printStackTrace();
+				exit(1);
 			}
 		}
-		System.err.println();
+		err.println();
 		executor.shutdownNow();
 		printResults();
 	}
 
-	private void handle(ParseResult res, String file) {
+	private void handle(ParseResult res) {
+		String path = res.path;
 		switch (res.result) {
 		case AMBIGUITY:
-			ambiguityFiles.add(file);
+			ambiguityFiles.add(path);
 			break;
 		case ERROR:
-			errorFiles.add(file);
+			errorFiles.add(path);
 			break;
 		case FAILURE:
-			failureFiles.add(file);
+			failureFiles.add(path);
 			break;
 		case STARTMISS:
-			startmissFiles.add(file);
+			startmissFiles.add(path);
+			break;
+		case TIMEOUT:
+			timeoutFiles.add(path);
 			break;
 		case SUCCESS:
 			break;
 		}
-		print(res.result.signal);
+		timeParses.put(path, res.msNeeded);
+		fileStats.put(path, FileStat.stat(path));
+		printErr(res);
+		printIntermediate(res);
 		if (res.exception != null) {
-			System.out.println(res.exception.getMessage());
+			out.println(res.exception.getMessage());
 		}
 	}
 
-	private void print(char signal) {
-		System.err.print(signal);
-		System.out.println(signal);
+	private void printIntermediate(ParseResult res) {
+		String path = res.path;
+		char signal = res.result.signal;
+		double time = res.msNeeded / 1000.0;
+		int nLoc = fileStats.get(path).getNumLines();
+		int nChars = fileStats.get(path).getNumChars();
+		String s = format("%c, %6.3fs, %4d, %6d: %s", signal, time, nLoc,
+		        nChars, path);
+		out.println(s);
+	}
+
+	private void printErr(ParseResult res) {
+		err.print(res.result.signal);
 	}
 
 	private void printResults() {
-		System.out.println();
-		System.out.println(String.format("Finished testing %d files.",
-				files.size()));
-
+		out.println();
+		out.println(format("Finished testing %d files.", files.size()));
+		out.println(format("Initial parser setup took %2.3fs.", msInit / 1000.0));
 		printResult(errorFiles, "Errors");
 		printResult(failureFiles, "Failures");
 		printResult(ambiguityFiles, "Ambiguities");
@@ -182,16 +220,16 @@ public class Main {
 
 	private void printResult(List<String> files, String desc) {
 		if (!files.isEmpty()) {
-			System.out.println();
-			System.out.println(String.format("%s (%d):", desc, files.size()));
+			out.println();
+			out.println(format("%s (%d):", desc, files.size()));
 			for (String file : files) {
-				System.out.println(file);
+				out.println(file);
 			}
 		}
 	}
 
 	class TimeoutParse implements Callable<ParseResult> {
-		private final SGLR sglr;
+		private final SGLR   sglr;
 		private final String filename;
 
 		public TimeoutParse(SGLR sglr, String filename) {
@@ -202,30 +240,6 @@ public class Main {
 		@Override
 		public ParseResult call() throws Exception {
 			return parse(sglr, filename);
-		}
-	}
-
-	enum ParseResultEnum {
-		SUCCESS(C_SUCCESS), AMBIGUITY(C_AMBIGUITY), FAILURE(C_FAILURE), ERROR(C_ERROR), STARTMISS(C_STARTMISS);
-
-		char signal;
-
-		ParseResultEnum(char signal) {
-			this.signal = signal;
-		}
-	}
-
-	class ParseResult {
-		final ParseResultEnum result;
-		final Exception exception;
-
-		public ParseResult(ParseResultEnum res) {
-			this(res, null);
-		}
-
-		public ParseResult(ParseResultEnum res, Exception e) {
-			this.result = res;
-			this.exception = e;
 		}
 	}
 }
