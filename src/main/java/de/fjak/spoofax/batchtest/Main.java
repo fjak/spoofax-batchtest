@@ -138,7 +138,7 @@ public class Main {
 		SGLR sglr = initSGLR(parseTable, startSymbol);
 		msInit = stopwatch.stop().read();
 
-		String head = format("R, %7s, %4s, %6s: %s", "time", "loc", "chars",
+		String head = format("RX, %7s, %4s, %6s: %s", "time", "loc", "chars",
 		        "path");
 		out.println(head);
 		for (String path : files) {
@@ -193,12 +193,17 @@ public class Main {
 	}
 
 	private void printIntermediate(ParseResult res) {
-		String path = res.path;
-		char signal = res.result.signal;
-		double time = res.msNeeded / 1000.0;
-		int nLoc = fileStats.get(path).getNumLines();
-		int nChars = fileStats.get(path).getNumChars();
-		String s = format("%c, %6.3fs, %4d, %6d: %s", signal, time, nLoc,
+		String path   = res.path;
+		FileStat stat = fileStats.get(path);
+		char signal   = res.result.signal;
+		double time   = res.msNeeded / 1000.0;
+		int nLoc      = stat.getNumLines();
+		int nChars    = stat.getNumChars();
+		char xml      = ' ';
+		if (stat.hasXml()) {
+			xml = 'X';
+		}
+		String s = format("%c%c, %6.3fs, %4d, %6d: %s", signal, xml, time, nLoc,
 		        nChars, path);
 		out.println(s);
 	}
